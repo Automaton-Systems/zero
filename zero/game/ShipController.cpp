@@ -39,6 +39,18 @@ static void OnPlayerEnterPkt(void* user, u8* pkt, size_t size) {
 
   if (ship != 8 && player_id == controller->player_manager.player_id) {
     controller->player_manager.Spawn();
+    
+    // NullOrbit: Strip bot down to minimal loadout (match Android client)
+    controller->ship.guns = 1;
+    controller->ship.bombs = 1;
+    controller->ship.repels = 0;
+    controller->ship.bursts = 0;
+    controller->ship.decoys = 0;
+    controller->ship.thors = 0;
+    controller->ship.bricks = 0;
+    controller->ship.rockets = 0;
+    controller->ship.portals = 0;
+    controller->ship.capability = ShipCapability_Stealth;
   }
 }
 
