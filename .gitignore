@@ -42,3 +42,4 @@ graphics
 *.cfg
 *.log
 wsl
+generated
