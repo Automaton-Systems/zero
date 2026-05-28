@@ -90,6 +90,12 @@ struct RadarVisibility {
   bool see_mines;
 };
 
+struct DecoyInfo {
+  Vector2f position;
+  u16 player_id;  // Player who threw the decoy
+  u8 ship;        // Ship type being mimicked
+};
+
 constexpr size_t kMaxWeapons = 16383;
 
 struct WeaponManager {
@@ -129,6 +135,9 @@ struct WeaponManager {
 
   void GetMineCounts(Player& player, const Vector2f& check, size_t* player_count, size_t* team_count,
                      bool* has_check_mine);
+
+  // Get active decoy positions for bot AI awareness
+  size_t GetActiveDecoys(DecoyInfo* out_decoys, size_t max_decoys);
 
  private:
   WeaponSimulateResult Simulate(Weapon& weapon, u32 current_tick);

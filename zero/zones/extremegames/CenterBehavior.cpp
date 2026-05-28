@@ -45,7 +45,7 @@ std::unique_ptr<behavior::BehaviorNode> CenterBehavior::CreateTree(behavior::Exe
             .Sequence() // Find nearest target and either path to them or seek them directly.
                 .Sequence()
                     .Child<PlayerPositionQueryNode>("self_position")
-                    .Child<NearestTargetNode>("nearest_target")
+                    .Child<NearestTargetNode>("nearest_target", true)
                     .Child<PlayerPositionQueryNode>("nearest_target", "nearest_target_position")
                     .Child<BulletDistanceNode>("bullet_distance")
                     .End()

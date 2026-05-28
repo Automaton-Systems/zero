@@ -130,7 +130,7 @@ std::unique_ptr<behavior::BehaviorNode> TestBehavior::CreateTree(behavior::Execu
             .InvertChild<RectangleContainsNode>(center_rect, "self_position") // Let this return false when in center so we exit this sequence
             .Sequence()
                 .Child<PlayerPositionQueryNode>("self_position")
-                .Child<NearestTargetNode>("nearest_target") // TODO: Better targeting system for base.
+                .Child<NearestTargetNode>("nearest_target", true) // TODO: Better targeting system for base.
                 .Child<PlayerPositionQueryNode>("nearest_target", "nearest_target_position")
                 .Child<RegionContainQueryNode>("nearest_target_position")
                 .End()

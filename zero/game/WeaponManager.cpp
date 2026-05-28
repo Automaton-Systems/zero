@@ -1079,6 +1079,27 @@ void WeaponManager::GetMineCounts(Player& player, const Vector2f& check, size_t*
   }
 }
 
+size_t WeaponManager::GetActiveDecoys(DecoyInfo* out_decoys, size_t max_decoys) {
+  size_t count = 0;
+
+  for (size_t i = 0; i < weapon_count && count < max_decoys; ++i) {
+    Weapon* weapon = weapons + i;
+    
+    if (weapon->data.type == WeaponType::Decoy) {
+      Player* player = player_manager.GetPlayerById(weapon->player_id);
+      
+      if (player) {
+        out_decoys[count].position = weapon->position;
+        out_decoys[count].player_id = weapon->player_id;
+        out_decoys[count].ship = player->ship;
+        ++count;
+      }
+    }
+  }
+
+  return count;
+}
+
 int GetEstimatedWeaponDamage(Weapon& weapon, Connection& connection) {
   // This might be a dangerous weapon.
   // Estimate damage from this weapon.
