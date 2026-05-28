@@ -1905,22 +1905,24 @@ void ShipController::ResetShip() {
 
   u32 pristine_seed = player_manager.connection.security.prize_seed;
 
+  // NullOrbit: Skip InitialBounty prize generation for bots, use fixed minimal loadout
+  // This matches the Android client behavior where we don't apply random prizes from InitialBounty
   // Generate random weighted prizes
-  if (player_manager.connection.prize_weight_total > 0) {
-    int attempts = 0;
-    for (int i = 0; i < ship_settings.InitialBounty && attempts < 9999; ++i, ++attempts) {
-      s32 prize_id = GeneratePrize(false);
-      Prize prize = (Prize)prize_id;
-
-      if (prize == Prize::FullCharge || prize == Prize::EngineShutdown || prize == Prize::Shields ||
-          prize == Prize::Super || prize == Prize::Warp || prize == Prize::Brick) {
-        --i;
-        continue;
-      }
-
-      ApplyPrize(self, prize_id, false);
-    }
-  }
+  // if (player_manager.connection.prize_weight_total > 0) {
+  //   int attempts = 0;
+  //   for (int i = 0; i < ship_settings.InitialBounty && attempts < 9999; ++i, ++attempts) {
+  //     s32 prize_id = GeneratePrize(false);
+  //     Prize prize = (Prize)prize_id;
+  //
+  //     if (prize == Prize::FullCharge || prize == Prize::EngineShutdown || prize == Prize::Shields ||
+  //         prize == Prize::Super || prize == Prize::Warp || prize == Prize::Brick) {
+  //       --i;
+  //       continue;
+  //     }
+  //
+  //     ApplyPrize(self, prize_id, false);
+  //   }
+  // }
 
   // Restore the prize seed to maintain synchronization with other clients.
   // The GeneratePrizes called above would mutate the seed, so it should be restored.
@@ -1928,6 +1930,13 @@ void ShipController::ResetShip() {
 
   self->energy = (float)ship.energy;
   self->bounty = ship_settings.InitialBounty;
+
+  // NullOrbit: Set fixed minimal loadout to match Android client behavior
+  // Give exactly level 1 gun and stealth; only give bomb if ship allows it (e.g. javelin MaxBombs=0)
+  // Don't override repels/bursts/etc - they keep their InitialRepel/InitialBurst config values
+  ship.guns = 1;
+  if (ship_settings.MaxBombs > 0) ship.bombs = 1;
+  ship.capability |= ShipCapability_Stealth;
 
   Event::Dispatch(ShipResetEvent());
 }
