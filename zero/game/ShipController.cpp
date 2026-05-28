@@ -41,8 +41,10 @@ static void OnPlayerEnterPkt(void* user, u8* pkt, size_t size) {
     controller->player_manager.Spawn();
     
     // NullOrbit: Strip bot down to minimal loadout (match Android client)
+    // Only give a bomb if the ship's arena settings allow it (e.g. javelin has MaxBombs=0)
+    auto& ship_settings = controller->player_manager.connection.settings.ShipSettings[ship];
     controller->ship.guns = 1;
-    controller->ship.bombs = 1;
+    controller->ship.bombs = ship_settings.MaxBombs > 0 ? 1 : 0;
     controller->ship.repels = 0;
     controller->ship.bursts = 0;
     controller->ship.decoys = 0;
