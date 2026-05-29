@@ -268,6 +268,19 @@ void PlayerManager::Update(float dt) {
     if (self->enter_delay > 0.0f) {
       position_delay = 50;
     }
+
+    // Reduce position delay when moving at high speeds (afterburner) to prevent visual jumping
+    float speed = self->velocity.Length();
+    const float kHighSpeedThreshold = 15.0f;  // Afterburner speed threshold
+    const float kVeryHighSpeedThreshold = 25.0f;  // Very fast movement
+    
+    if (speed >= kVeryHighSpeedThreshold) {
+      // Moving extremely fast - send every 2 ticks (20ms)
+      position_delay = 2;
+    } else if (speed >= kHighSpeedThreshold) {
+      // Moving fast (afterburner active) - send every 3 ticks (30ms)
+      position_delay = 3;
+    }
   }
 
   s32 server_timestamp = MAKE_TICK(current_tick + connection.time_diff);
