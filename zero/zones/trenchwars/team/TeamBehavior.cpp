@@ -26,7 +26,9 @@ namespace tw {
 constexpr float kTeamLeashDistance = 30.0f;
 constexpr float kAvoidTeamDistance = 2.0f;
 constexpr float kFarEnemyDistance = 35.0f;
-constexpr float kSpawnAreaRadius = 30.0f; // Distance from spawn before engaging enemies
+constexpr float kSpawnAreaRadius = 80.0f; // Distance from spawn before engaging enemies - increased more
+constexpr float kMaxChaseDistance = 40.0f; // Break off chase if enemy is further than this - reduced
+constexpr u32 kPostSpawnExploreTime = 1500; // Ticks (15 seconds) to explore before engaging - increased
 
 // Defensive behavior - dodge incoming damage, warp if about to die
 static std::unique_ptr<behavior::BehaviorNode> CreateDefensiveTree() {
@@ -167,9 +169,11 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
         .Sequence() // Enter the specified ship if not already in it.
             .InvertChild<ShipQueryNode>("request_ship")
             .Child<ShipRequestNode>("request_ship")
+            .Child<TimerSetNode>("explore_timer", kPostSpawnExploreTime) // Set explore timer on ship entry
             .End()
-        .Sequence() // Do nothing while waiting for spawn cooldown
+        .Sequence() // Do nothing while waiting for spawn cooldown, then reset explore timer
             .InvertChild<TimerExpiredNode>(TrenchWars::SpawnExecuteCooldownKey())
+            .Child<TimerSetNode>("explore_timer", kPostSpawnExploreTime) // Reset timer on respawn
             .End()
         .Sequence() // Join requested freq
             .Child<PlayerFrequencyQueryNode>("self_freq")
@@ -181,15 +185,32 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
         .Sequence() // If we are in spec, do nothing
             .Child<ShipQueryNode>(8)
             .End()
+        .Sequence() // Force exploration for first 15 seconds after spawn
+            .InvertChild<ShipQueryNode>(8)
+            .InvertChild<TimerExpiredNode>("explore_timer") // Still in explore mode
+            .Composite(CreatePatrolTree()) // Just patrol, no combat
+            .End()
         .Sequence() // Leave spawn area before engaging enemies
             .InvertChild<ShipQueryNode>(8) // Make sure we're not in spec
             .Child<PlayerPositionQueryNode>("self_position")
             .InvertChild<DistanceThresholdNode>("self_position", "spawn_position", kSpawnAreaRadius)
-            .Child<VectorNode>(Vector2f(435, 425), "leave_spawn_target")
+            .Sequence(CompositeDecorator::Success) // Pick random direction to leave spawn
+                .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+                  // Generate random exit point 30% from edges
+                  constexpr float kMapSize = 1024.0f;
+                  constexpr float kEdgeMargin = 0.30f;
+                  float min_coord = kMapSize * kEdgeMargin;
+                  float max_coord = kMapSize * (1.0f - kEdgeMargin);
+                  float x = min_coord + (rand() % (int)(max_coord - min_coord));
+                  float y = min_coord + (rand() % (int)(max_coord - min_coord));
+                  ctx.blackboard.Set("leave_spawn_target", Vector2f(x, y));
+                  return behavior::ExecuteResult::Success;
+                })
+                .End()
             .Sequence(CompositeDecorator::Success) // Use afterburners to leave spawn faster
                 .Child<AfterburnerThresholdNode>()
                 .End()
-            .Selector() // Navigate to first waypoint
+            .Selector() // Navigate to waypoint
                 .Sequence()
                     .Child<ShipTraverseQueryNode>("leave_spawn_target")
                     .Child<FaceNode>("leave_spawn_target")
@@ -202,16 +223,17 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
             .InvertChild<ShipQueryNode>(8) // Make sure we're not in spec
             .Selector()
                 .Composite(CreateDefensiveTree()) // Priority 1: Defend if under attack
-                .Sequence() // Priority 2: Fight enemies if nearby
+                .Sequence() // Priority 2: Fight enemies if nearby (and within chase range)
                     .Child<PlayerPositionQueryNode>("self_position")
                     .Child<NearestTargetNode>("nearest_target", true)
                     .Child<PlayerPositionQueryNode>("nearest_target", "nearest_target_position")
+                    .InvertChild<DistanceThresholdNode>("nearest_target_position", kMaxChaseDistance) // Break off if too far
                     .Selector()
                         .Composite(CreateChaseTree()) // Path to enemy if not visible
                         .Composite(CreateOffensiveTree()) // Attack if visible
                         .End()
                     .End()
-                .Composite(CreatePatrolTree()) // Priority 3: Patrol when no enemies
+                .Composite(CreatePatrolTree()) // Priority 3: Patrol when no enemies (or enemy too far)
                 .End()
             .End()
         .Sequence() // Warp out if all above sequences failed
