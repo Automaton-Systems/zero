@@ -14,6 +14,9 @@ struct TeamBehavior : public behavior::Behavior {
     ctx.blackboard.Set("request_ship", 0);
     ctx.blackboard.Set("leash_distance", 30.0f);
 
+    // Spawn position for detecting if bot needs to leave initial area
+    ctx.blackboard.Set("spawn_position", Vector2f(512, 512));
+
     std::vector<Vector2f> waypoints{
         Vector2f(435, 425),
         Vector2f(589, 425),

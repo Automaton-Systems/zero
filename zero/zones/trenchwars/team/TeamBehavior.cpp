@@ -26,6 +26,7 @@ namespace tw {
 constexpr float kTeamLeashDistance = 30.0f;
 constexpr float kAvoidTeamDistance = 2.0f;
 constexpr float kFarEnemyDistance = 35.0f;
+constexpr float kSpawnAreaRadius = 30.0f; // Distance from spawn before engaging enemies
 
 // Defensive behavior - dodge incoming damage, warp if about to die
 static std::unique_ptr<behavior::BehaviorNode> CreateDefensiveTree() {
@@ -180,7 +181,28 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
         .Sequence() // If we are in spec, do nothing
             .Child<ShipQueryNode>(8)
             .End()
-        .Sequence() // Main behavior for all ships
+        .Sequence() // Leave spawn area before engaging enemies
+            .InvertChild<ShipQueryNode>(8) // Make sure we're not in spec
+            .Child<PlayerPositionQueryNode>("self_position")
+            .InvertChild<DistanceThresholdNode>("self_position", "spawn_position", kSpawnAreaRadius)
+            .Selector()
+                .Sequence() // Use afterburners to leave spawn faster
+                    .Child<AfterburnerThresholdNode>()
+                    .End()
+                .Sequence() // Go to first waypoint to leave spawn
+                    .Child<VectorNode>(Vector2f(435, 425), "leave_spawn_target")
+                    .Selector()
+                        .Sequence()
+                            .Child<ShipTraverseQueryNode>("leave_spawn_target")
+                            .Child<FaceNode>("leave_spawn_target")
+                            .Child<ArriveNode>("leave_spawn_target", 1.25f)
+                            .End()
+                        .Child<GoToNode>("leave_spawn_target")
+                        .End()
+                    .End()
+                .End()
+            .End()
+        .Sequence() // Main behavior for all ships (only when outside spawn area)
             .InvertChild<ShipQueryNode>(8) // Make sure we're not in spec
             .Selector()
                 .Composite(CreateDefensiveTree()) // Priority 1: Defend if under attack
