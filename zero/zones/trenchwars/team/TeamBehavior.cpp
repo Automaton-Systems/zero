@@ -185,21 +185,17 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
             .InvertChild<ShipQueryNode>(8) // Make sure we're not in spec
             .Child<PlayerPositionQueryNode>("self_position")
             .InvertChild<DistanceThresholdNode>("self_position", "spawn_position", kSpawnAreaRadius)
-            .Selector()
-                .Sequence() // Use afterburners to leave spawn faster
-                    .Child<AfterburnerThresholdNode>()
+            .Child<VectorNode>(Vector2f(435, 425), "leave_spawn_target")
+            .Sequence(CompositeDecorator::Success) // Use afterburners to leave spawn faster
+                .Child<AfterburnerThresholdNode>()
+                .End()
+            .Selector() // Navigate to first waypoint
+                .Sequence()
+                    .Child<ShipTraverseQueryNode>("leave_spawn_target")
+                    .Child<FaceNode>("leave_spawn_target")
+                    .Child<ArriveNode>("leave_spawn_target", 1.25f)
                     .End()
-                .Sequence() // Go to first waypoint to leave spawn
-                    .Child<VectorNode>(Vector2f(435, 425), "leave_spawn_target")
-                    .Selector()
-                        .Sequence()
-                            .Child<ShipTraverseQueryNode>("leave_spawn_target")
-                            .Child<FaceNode>("leave_spawn_target")
-                            .Child<ArriveNode>("leave_spawn_target", 1.25f)
-                            .End()
-                        .Child<GoToNode>("leave_spawn_target")
-                        .End()
-                    .End()
+                .Child<GoToNode>("leave_spawn_target")
                 .End()
             .End()
         .Sequence() // Main behavior for all ships (only when outside spawn area)
