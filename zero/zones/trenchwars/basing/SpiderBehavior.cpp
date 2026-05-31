@@ -28,11 +28,15 @@
 #include <zero/zones/trenchwars/nodes/FlagNode.h>
 #include <zero/zones/trenchwars/nodes/MoveNode.h>
 
+#include <random>
+
 namespace zero {
 namespace tw {
 
+constexpr u32 kTileIdWormhole = 220;
 constexpr float kSpiderLeashDistance = 30.0f;
 constexpr float kAvoidTeamDistance = 2.0f;
+constexpr float kAimJitterAmount = 1.5f; // Tiles of random aim offset for medium difficulty
 
 static std::unique_ptr<behavior::BehaviorNode> CreateDefensiveTree() {
   using namespace behavior;
@@ -74,6 +78,19 @@ static std::unique_ptr<behavior::BehaviorNode> CreateShootTree(const char* neare
     .Sequence()
         .Sequence(CompositeDecorator::Success) // Determine if a shot should be fired by using weapon trajectory and bounding boxes.
             .Child<AimNode>(WeaponType::Bullet, nearest_target_key, "aimshot")
+            .Sequence(CompositeDecorator::Success) // Add random aim jitter for medium difficulty
+                .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+                  auto opt_aimshot = ctx.blackboard.Value<Vector2f>("aimshot");
+                  if (opt_aimshot) {
+                    static std::random_device rd;
+                    static std::mt19937 gen(rd());
+                    std::uniform_real_distribution<float> dis(-kAimJitterAmount, kAimJitterAmount);
+                    Vector2f jittered = *opt_aimshot + Vector2f(dis(gen), dis(gen));
+                    ctx.blackboard.Set("aimshot", jittered);
+                  }
+                  return behavior::ExecuteResult::Success;
+                })
+                .End()
             .Child<svs::DynamicPlayerBoundingBoxQueryNode>(nearest_target_key, "target_bounds", 4.0f)
             .Child<MoveRectangleNode>("target_bounds", "aimshot", "target_bounds")
             .Child<RenderRectNode>("world_camera", "target_bounds", Vector3f(1.0f, 0.0f, 0.0f))
@@ -112,6 +129,19 @@ static std::unique_ptr<behavior::BehaviorNode> CreateOffensiveTree(const char* n
   builder
     .Sequence() // Aim at target and shoot while seeking them.
         .Child<AimNode>(WeaponType::Bullet, nearest_target_key, "aimshot")
+        .Sequence(CompositeDecorator::Success) // Add random aim jitter for medium difficulty
+            .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+              auto opt_aimshot = ctx.blackboard.Value<Vector2f>("aimshot");
+              if (opt_aimshot) {
+                static std::random_device rd;
+                static std::mt19937 gen(rd());
+                std::uniform_real_distribution<float> dis(-kAimJitterAmount, kAimJitterAmount);
+                Vector2f jittered = *opt_aimshot + Vector2f(dis(gen), dis(gen));
+                ctx.blackboard.Set("aimshot", jittered);
+              }
+              return behavior::ExecuteResult::Success;
+            })
+            .End()
         .Parallel()
             .Child<FaceNode>("aimshot")
             .Child<BlackboardEraseNode>("rushing")

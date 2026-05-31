@@ -20,8 +20,12 @@
 #include <zero/zones/trenchwars/TrenchWars.h>
 #include <zero/zones/trenchwars/nodes/MoveNode.h>
 
+#include <random>
+
 namespace zero {
 namespace tw {
+
+constexpr u32 kTileIdWormhole = 220;
 
 constexpr float kTeamLeashDistance = 30.0f;
 constexpr float kAvoidTeamDistance = 2.0f;
@@ -29,6 +33,8 @@ constexpr float kFarEnemyDistance = 35.0f;
 constexpr float kSpawnAreaRadius = 80.0f; // Distance from spawn before engaging enemies - increased more
 constexpr float kMaxChaseDistance = 40.0f; // Break off chase if enemy is further than this - reduced
 constexpr u32 kPostSpawnExploreTime = 1500; // Ticks (15 seconds) to explore before engaging - increased
+constexpr float kWormholeDetectionRadius = 5.0f; // Tiles from wormhole to start avoiding
+constexpr float kAimJitterAmount = 1.5f; // Tiles of random aim offset for medium difficulty
 
 // Defensive behavior - dodge incoming damage, warp if about to die
 static std::unique_ptr<behavior::BehaviorNode> CreateDefensiveTree() {
@@ -74,6 +80,19 @@ static std::unique_ptr<behavior::BehaviorNode> CreateOffensiveTree() {
         .Child<PlayerPositionQueryNode>("self_position")
         .Child<PlayerEnergyQueryNode>("self_energy")
         .Child<AimNode>(WeaponType::Bullet, "nearest_target", "aimshot")
+        .Sequence(CompositeDecorator::Success) // Add random aim jitter for medium difficulty
+            .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+              auto opt_aimshot = ctx.blackboard.Value<Vector2f>("aimshot");
+              if (opt_aimshot) {
+                static std::random_device rd;
+                static std::mt19937 gen(rd());
+                std::uniform_real_distribution<float> dis(-kAimJitterAmount, kAimJitterAmount);
+                Vector2f jittered = *opt_aimshot + Vector2f(dis(gen), dis(gen));
+                ctx.blackboard.Set("aimshot", jittered);
+              }
+              return behavior::ExecuteResult::Success;
+            })
+            .End()
         .Parallel() // Do movement and shooting in parallel
             .Selector() // Choose movement strategy
                 .Sequence() // Rush if we have more energy than target
@@ -139,7 +158,28 @@ static std::unique_ptr<behavior::BehaviorNode> CreatePatrolTree() {
   // clang-format off
   builder
     .Sequence()
-        .Child<WaypointNode>("waypoints", "waypoint_index", "waypoint_position", 15.0f)
+        .Sequence(CompositeDecorator::Success) // Generate random waypoint across whole map
+            .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+              auto opt_waypoint = ctx.blackboard.Value<Vector2f>("waypoint_position");
+              auto opt_self_pos = ctx.blackboard.Value<Vector2f>("self_position");
+              
+              // Generate new waypoint if we don't have one or reached current one
+              if (!opt_waypoint || (opt_self_pos && (*opt_self_pos - *opt_waypoint).LengthSq() < 15.0f * 15.0f)) {
+                constexpr float kMapSize = 1024.0f;
+                constexpr float kEdgeMargin = 0.20f;
+                float min_coord = kMapSize * kEdgeMargin;
+                float max_coord = kMapSize * (1.0f - kEdgeMargin);
+                
+                static std::random_device rd;
+                static std::mt19937 gen(rd());
+                std::uniform_real_distribution<float> dis(min_coord, max_coord);
+                
+                Vector2f new_waypoint(dis(gen), dis(gen));
+                ctx.blackboard.Set("waypoint_position", new_waypoint);
+              }
+              return behavior::ExecuteResult::Success;
+            })
+            .End()
         .Selector()
             .Sequence() // Direct path if traversable
                 .Child<ShipTraverseQueryNode>("waypoint_position")
@@ -185,10 +225,45 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
         .Sequence() // If we are in spec, do nothing
             .Child<ShipQueryNode>(8)
             .End()
-        .Sequence() // Force exploration for first 15 seconds after spawn
+        .Sequence() // Exploration mode: patrol but allow defensive shooting
             .InvertChild<ShipQueryNode>(8)
             .InvertChild<TimerExpiredNode>("explore_timer") // Still in explore mode
-            .Composite(CreatePatrolTree()) // Just patrol, no combat
+            .Child<PlayerPositionQueryNode>("self_position")
+            .Selector()
+                .Sequence() // Allow opportunistic shooting at close enemies without chasing
+                    .Child<NearestTargetNode>("nearest_target", true)
+                    .Child<PlayerPositionQueryNode>("nearest_target", "nearest_target_position")
+                    .InvertChild<DistanceThresholdNode>("nearest_target_position", 15.0f) // Only if very close
+                    .Child<AimNode>(WeaponType::Bullet, "nearest_target", "aimshot")
+                    .Sequence(CompositeDecorator::Success) // Add aim jitter
+                        .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+                          auto opt_aimshot = ctx.blackboard.Value<Vector2f>("aimshot");
+                          if (opt_aimshot) {
+                            static std::random_device rd;
+                            static std::mt19937 gen(rd());
+                            std::uniform_real_distribution<float> dis(-kAimJitterAmount, kAimJitterAmount);
+                            Vector2f jittered = *opt_aimshot + Vector2f(dis(gen), dis(gen));
+                            ctx.blackboard.Set("aimshot", jittered);
+                          }
+                          return behavior::ExecuteResult::Success;
+                        })
+                        .End()
+                    .Parallel()
+                        .Child<FaceNode>("aimshot")
+                        .Sequence(CompositeDecorator::Success) // Shoot if good shot
+                            .Child<PlayerEnergyPercentThresholdNode>(0.5f)
+                            .InvertChild<ShipWeaponCooldownQueryNode>(WeaponType::Bullet)
+                            .Child<ShotVelocityQueryNode>(WeaponType::Bullet, "bullet_velocity")
+                            .Child<RayNode>("self_position", "bullet_velocity", "bullet_ray")
+                            .Child<svs::DynamicPlayerBoundingBoxQueryNode>("nearest_target", "target_bounds", 3.5f)
+                            .Child<MoveRectangleNode>("target_bounds", "aimshot", "target_bounds")
+                            .Child<RayRectangleInterceptNode>("bullet_ray", "target_bounds")
+                            .Child<InputActionNode>(InputAction::Bullet)
+                            .End()
+                        .End()
+                    .End()
+                .Composite(CreatePatrolTree()) // Default: just patrol
+                .End()
             .End()
         .Sequence() // Leave spawn area before engaging enemies
             .InvertChild<ShipQueryNode>(8) // Make sure we're not in spec
@@ -222,8 +297,37 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
         .Sequence() // Main behavior for all ships (only when outside spawn area)
             .InvertChild<ShipQueryNode>(8) // Make sure we're not in spec
             .Selector()
-                .Composite(CreateDefensiveTree()) // Priority 1: Defend if under attack
-                .Sequence() // Priority 2: Fight enemies if nearby (and within chase range)
+                .Sequence() // Priority 1: Check for wormhole and boost through or avoid
+                    .Child<PlayerPositionQueryNode>("self_position")
+                    .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+                      auto opt_pos = ctx.blackboard.Value<Vector2f>("self_position");
+                      if (!opt_pos) return behavior::ExecuteResult::Failure;
+                      
+                      Vector2f pos = *opt_pos;
+                      auto& map = ctx.bot->game->GetMap();
+                      
+                      // Check for wormhole in nearby tiles
+                      for (int dy = -5; dy <= 5; ++dy) {
+                        for (int dx = -5; dx <= 5; ++dx) {
+                          int tx = (int)pos.x + dx;
+                          int ty = (int)pos.y + dy;
+                          if (tx >= 0 && tx < 1024 && ty >= 0 && ty < 1024) {
+                            if (map.GetTileId((u16)tx, (u16)ty) == kTileIdWormhole) {
+                              float dist_sq = (float)(dx * dx + dy * dy);
+                              if (dist_sq < kWormholeDetectionRadius * kWormholeDetectionRadius) {
+                                ctx.blackboard.Set("near_wormhole", 1.0f);
+                                return behavior::ExecuteResult::Success;
+                              }
+                            }
+                          }
+                        }
+                      }
+                      return behavior::ExecuteResult::Failure;
+                    })
+                    .Child<AfterburnerThresholdNode>() // Boost through wormhole gravity
+                    .End()
+                .Composite(CreateDefensiveTree()) // Priority 2: Defend if under attack
+                .Sequence() // Priority 3: Fight enemies if nearby (and within chase range)
                     .Child<PlayerPositionQueryNode>("self_position")
                     .Child<NearestTargetNode>("nearest_target", true)
                     .Child<PlayerPositionQueryNode>("nearest_target", "nearest_target_position")
@@ -233,7 +337,7 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
                         .Composite(CreateOffensiveTree()) // Attack if visible
                         .End()
                     .End()
-                .Composite(CreatePatrolTree()) // Priority 3: Patrol when no enemies (or enemy too far)
+                .Composite(CreatePatrolTree()) // Priority 4: Patrol when no enemies (or enemy too far)
                 .End()
             .End()
         .Sequence() // Warp out if all above sequences failed

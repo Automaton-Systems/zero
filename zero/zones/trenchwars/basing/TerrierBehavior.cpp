@@ -27,10 +27,14 @@
 #include <zero/zones/trenchwars/nodes/FlagNode.h>
 #include <zero/zones/trenchwars/nodes/MoveNode.h>
 
+#include <random>
+
 namespace zero {
 namespace tw {
 
+constexpr u32 kTileIdWormhole = 220;
 constexpr float kTerrierLeashDistance = 30.0f;
+constexpr float kAimJitterAmount = 1.5f; // Tiles of random aim offset for medium difficulty
 
 // This checks all of the enemy weapons to make sure none are in the provided rect.
 // Returns success if the estimated weapon damage in this area is less than the provided threshold.
@@ -393,6 +397,19 @@ static std::unique_ptr<behavior::BehaviorNode> CreateOffensiveTree(const char* n
   builder
     .Sequence() // Aim at target and shoot while seeking them.
         .Child<AimNode>(WeaponType::Bullet, nearest_target_key, "aimshot")
+        .Sequence(CompositeDecorator::Success) // Add random aim jitter for medium difficulty
+            .Child<ExecuteNode>([](behavior::ExecuteContext& ctx) {
+              auto opt_aimshot = ctx.blackboard.Value<Vector2f>("aimshot");
+              if (opt_aimshot) {
+                static std::random_device rd;
+                static std::mt19937 gen(rd());
+                std::uniform_real_distribution<float> dis(-kAimJitterAmount, kAimJitterAmount);
+                Vector2f jittered = *opt_aimshot + Vector2f(dis(gen), dis(gen));
+                ctx.blackboard.Set("aimshot", jittered);
+              }
+              return behavior::ExecuteResult::Success;
+            })
+            .End()
         .Parallel()
             .Child<FaceNode>("aimshot")
             .Child<SeekNode>("aimshot", kTerrierLeashDistance, SeekNode::DistanceResolveType::Dynamic)
