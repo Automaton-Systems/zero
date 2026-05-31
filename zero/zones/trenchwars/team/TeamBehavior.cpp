@@ -225,12 +225,13 @@ std::unique_ptr<behavior::BehaviorNode> TeamBehavior::CreateTree(behavior::Execu
         .Sequence() // If we are in spec, do nothing
             .Child<ShipQueryNode>(8)
             .End()
-        .Sequence() // Exploration mode: patrol but allow defensive shooting
+        .Sequence() // Exploration mode: patrol but allow retaliation if attacked
             .InvertChild<ShipQueryNode>(8)
             .InvertChild<TimerExpiredNode>("explore_timer") // Still in explore mode
             .Child<PlayerPositionQueryNode>("self_position")
             .Selector()
-                .Sequence() // Allow opportunistic shooting at close enemies without chasing
+                .Sequence() // Only shoot back if we're taking damage (being attacked)
+                    .Child<svs::IncomingDamageQueryNode>(6.0f, "incoming_damage") // Check for incoming threats
                     .Child<NearestTargetNode>("nearest_target", true)
                     .Child<PlayerPositionQueryNode>("nearest_target", "nearest_target_position")
                     .InvertChild<DistanceThresholdNode>("nearest_target_position", 15.0f) // Only if very close
